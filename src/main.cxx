@@ -37,6 +37,11 @@
 
 #define OPENCV_THREAD_COUNT 4
 #define DOWNSAMPLE 2
+#define MAXIMUM_DISPARITY 30
+
+
+//first implementation was done using
+// REAL-TIME LOCAL STEREO MATCHING USING GUIDED IMAGE FILTERING
 
 
 cv::Mat mat2gray(const cv::Mat& src)
@@ -78,7 +83,18 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
   //TODO not completiely optimal since you don't need to check for all the values in the right img, only the ones to the left of pixel i,j
   for (size_t i = 0; i < img_left.rows; i++) {
     for (size_t j = 0; j < img_left.cols; j++) {
-      for (size_t d = 0; d < img_left.cols ; d++) {
+
+      // cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
+
+//       uchar b = frame.data[frame.channels()*(frame.cols*y + x) + 0];
+// uchar g = frame.data[frame.channels()*(frame.cols*y + x) + 1];
+// uchar r = frame.data[frame.channels()*(frame.cols*y + x) + 2];
+
+      for (size_t d = 0; d < MAXIMUM_DISPARITY ; d++) {
+
+        if ((j-d)<0 ){
+          continue; //TODO not exactly the most effiecient way since you have an if inside a loop
+        }
 
         // std::cout << "d is " << d << '\n';
         //Compute cost between pixel at (i,j) in the left image and pixel at (i,j-d) in the right image
@@ -99,7 +115,7 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
         // float alpha=0.5;
         // float truncation_color=100;
         // float truncation_gradient=150;
-        cost=alpha* std::min (truncation_color,color_diff) + (1-alpha)* std::min(truncation_gradient,grad_diff);
+        cost=alpha* std::min (color_diff, truncation_color) + (1-alpha)* std::min(grad_diff, truncation_gradient);
         // cost=color_diff;
 
         // std::cout << "cost is " << cost << '\n';
@@ -197,11 +213,11 @@ int main(int, char**){
     // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/Aloe/view1.png";
     // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/Aloe/view5.png";
 
-    // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im2.png";
-    // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im6.png";
+    std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im2.png";
+    std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im6.png";
 
-    std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im2.png";
-    std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im6.png";
+    // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im2.png";
+    // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im6.png";
     //
     // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/reindeer_half/view1.png";
     // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/reindeer_half/view5.png";
@@ -287,7 +303,7 @@ int main(int, char**){
     downsample (img_right_rgb,img_right_rgb,DOWNSAMPLE);
     //alocate volume
     cost_volume.clear();
-    for (size_t i = 0; i < img_left_gray.cols; i++) {
+    for (size_t i = 0; i < MAXIMUM_DISPARITY; i++) {
       cost_volume.push_back(cv::Mat(img_left_gray.rows, img_left_gray.cols, CV_32F, cv::Scalar(255))  );
     }
     float alpha=0.5;
@@ -295,6 +311,8 @@ int main(int, char**){
     float truncation_gradient=150;
     ImVec2 transfer_func[10];
     transfer_func[0].x=-1;
+    float time_avg=0;
+    int times_count=1;
 
 
     //ELAS params
@@ -481,6 +499,12 @@ int main(int, char**){
         }
       }
 
+      // for (size_t i = 0; i < cost_volume.size(); i++) {
+      //   cv::imshow("cost_filtered", mat2gray(cost_volume[i]));
+      //   cv::waitKey(0);
+      // }
+
+
       winner_take_all(cost_volume,disparity_map);
 
 
@@ -526,7 +550,10 @@ int main(int, char**){
       // std::string time= std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(end_detect - begin_detect).count());
       // std::cout << "time is " << time << '\n';
       float time_f= std::chrono::duration_cast<std::chrono::nanoseconds>(end_detect - begin_detect).count() /1e6 ;
+      time_avg = time_avg + (time_f - time_avg)/times_count;
+      times_count++;
       ImGui::Text("Time for detection (%.3f ms): ", time_f );
+      ImGui::Text("Time for detection (%.3f ms): ", time_avg );
       ImGui::Text("Number of keypoints left img: %ld: ", kp_left.size() );
 
 
