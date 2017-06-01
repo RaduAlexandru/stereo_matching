@@ -72,11 +72,20 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
   // downsample(img_right,img_right,DOWNSAMPLE);
 
   cv::Mat sobel_x_left,sobel_x_right;
+  cv::Mat sobel_y_left,sobel_y_right;
+  cv::Mat magnitude_left, magnitude_right;
   cv::Mat img_left_gray, img_right_gray;
   cv::cvtColor(img_left,img_left_gray, CV_BGR2GRAY);
   cv::cvtColor(img_right,img_right_gray, CV_BGR2GRAY);
-  cv::Sobel(img_left_gray, sobel_x_left, img_left_gray.depth(), 1, 0, 3);
-  cv::Sobel(img_right_gray, sobel_x_right, img_right_gray.depth(), 1, 0, 3);
+  cv::Sobel(img_left_gray, sobel_x_left, CV_32F, 1, 0, 3);
+  cv::Sobel(img_right_gray, sobel_x_right, CV_32F, 1, 0, 3);
+
+  // //Sobel in y
+  // cv::Sobel(img_left_gray, sobel_y_left, CV_32F, 0, 1, 3);
+  // // cv::Sobel(img_right_gray, sobel_y_right, CV_32F, 0, 1, 3);
+  //
+  // cv::magnitude(sobel_x_left, sobel_y_left, magnitude_left);
+  // // cv::magnitude(sobel_x_left, sobel_y_left, magnitude_right);
 
 
 
@@ -84,23 +93,19 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
   for (size_t i = 0; i < img_left.rows; i++) {
     for (size_t j = 0; j < img_left.cols; j++) {
 
-      // cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
-
-//       uchar b = frame.data[frame.channels()*(frame.cols*y + x) + 0];
-// uchar g = frame.data[frame.channels()*(frame.cols*y + x) + 1];
-// uchar r = frame.data[frame.channels()*(frame.cols*y + x) + 2];
+      cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
 
       for (size_t d = 0; d < MAXIMUM_DISPARITY ; d++) {
 
         if ((j-d)<0 ){
-          continue; //TODO not exactly the most effiecient way since you have an if inside a loop
+          continue; //TODO for some reason this is more efficient than looping until std::min(MAXIMUM_DISPARITY, (int)j)
         }
 
         // std::cout << "d is " << d << '\n';
         //Compute cost between pixel at (i,j) in the left image and pixel at (i,j-d) in the right image
 
         float color_diff=0;
-        cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
+        // cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
         cv::Vec3b intensity_right = img_right.at<cv::Vec3b>(i,j-d);
         for (size_t c_idx = 0; c_idx < img_left.channels(); c_idx++) {
           color_diff+=std::abs( intensity_left.val[c_idx]- intensity_right[c_idx] );
@@ -108,17 +113,13 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
 
 
         float grad_diff=0;
-        grad_diff = std::abs(sobel_x_left.at<uchar>(i,j) - sobel_x_right.at<uchar>(i,j-d));
+        grad_diff = std::fabs(sobel_x_left.at<float>(i,j) - sobel_x_right.at<float>(i,j-d));
 
 
         float cost=0;
-        // float alpha=0.5;
-        // float truncation_color=100;
-        // float truncation_gradient=150;
         cost=alpha* std::min (color_diff, truncation_color) + (1-alpha)* std::min(grad_diff, truncation_gradient);
-        // cost=color_diff;
 
-        // std::cout << "cost is " << cost << '\n';
+
 
         cost_volume[d].at<float>(i,j)=cost;
 
@@ -132,14 +133,93 @@ void compute_cost_volume(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, c
 
 
 
-void winner_take_all(std::vector<cv::Mat> cost_volume, cv::Mat& disparity_map){
+void compute_cost_volume_right(std::vector<cv::Mat>& cost_volume , cv::Mat img_left, cv::Mat img_right, float alpha, float truncation_color, float truncation_gradient  ){
+  // downsample
+  // downsample(img_left,img_left,DOWNSAMPLE);
+  // downsample(img_right,img_right,DOWNSAMPLE);
 
-  disparity_map= cv::Mat (cost_volume[0].rows,cost_volume[0].cols, CV_32S, cv::Scalar(0) );
+  cv::Mat sobel_x_left,sobel_x_right;
+  cv::Mat sobel_y_left,sobel_y_right;
+  cv::Mat magnitude_left, magnitude_right;
+  cv::Mat img_left_gray, img_right_gray;
+  cv::cvtColor(img_left,img_left_gray, CV_BGR2GRAY);
+  cv::cvtColor(img_right,img_right_gray, CV_BGR2GRAY);
+  cv::Sobel(img_left_gray, sobel_x_left, CV_32F, 1, 0, 3);
+  cv::Sobel(img_right_gray, sobel_x_right, CV_32F, 1, 0, 3);
+
+
+
+  //TODO not completiely optimal since you don't need to check for all the values in the right img, only the ones to the left of pixel i,j
+  for (size_t i = 0; i < img_right.rows; i++) {
+    for (size_t j = 0; j < img_right.cols; j++) {
+
+      cv::Vec3b intensity_right = img_right.at<cv::Vec3b>(i,j);
+
+      for (size_t d = 0; d < MAXIMUM_DISPARITY ; d++) {
+
+        if ((j+d)>img_left.cols ){
+          continue; //TODO for some reason this is more efficient than looping until std::min(MAXIMUM_DISPARITY, (int)j)
+        }
+
+        // std::cout << "d is " << d << '\n';
+        //Compute cost between pixel at (i,j) in the left image and pixel at (i,j-d) in the right image
+
+        float color_diff=0;
+        // cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j);
+        cv::Vec3b intensity_left = img_left.at<cv::Vec3b>(i,j+d);
+        for (size_t c_idx = 0; c_idx < img_right.channels(); c_idx++) {
+          color_diff+=std::abs( intensity_left.val[c_idx]- intensity_right[c_idx] );
+        }
+
+
+        float grad_diff=0;
+        grad_diff = std::fabs(sobel_x_right.at<float>(i,j) - sobel_x_left.at<float>(i,j+d));
+
+
+        float cost=0;
+        cost=alpha* std::min (color_diff, truncation_color) + (1-alpha)* std::min(grad_diff, truncation_gradient);
+
+
+
+        cost_volume[d].at<float>(i,j)=cost;
+
+
+      }
+    }
+  }
+
+
+}
+
+
+
+void winner_take_all(std::vector<cv::Mat> cost_volume, cv::Mat& disparity_map, cv::Mat& confidence_map){
+
+  disparity_map= cv::Mat (cost_volume[0].rows,cost_volume[0].cols, CV_32F, cv::Scalar(0) );
+  confidence_map= cv::Mat (cost_volume[0].rows,cost_volume[0].cols, CV_32F);
+
+
+  //need to get the maximum cost (the worst matched point) so that when we interpolate the dispatirites and get the weights we have somthing like (max_cost-cost_current_dispatiry )
+  float max_cost=0;
+  for (size_t d = 0; d < MAXIMUM_DISPARITY; d++) {
+    for (size_t i = 0; i < cost_volume[0].rows; i++) {
+      for (size_t j = 0; j < cost_volume[0].cols; j++) {
+        if(cost_volume[d].at<float>(i,j)>max_cost){
+          max_cost=cost_volume[d].at<float>(i,j);
+        }
+
+      }
+    }
+  }
+  // std::cout << "max cost is " << max_cost << '\n';
+
+
+
 
   for (size_t i = 0; i < cost_volume[0].rows; i++) {
     for (size_t j = 0; j < cost_volume[0].cols; j++) {
       float min_cost=std::numeric_limits<float>::max();
-      int disparity=0;
+      float disparity=0;
 
       for (size_t d = 0; d < cost_volume.size(); d++) {
         if (cost_volume[d].at<float>(i,j)<min_cost){
@@ -148,8 +228,25 @@ void winner_take_all(std::vector<cv::Mat> cost_volume, cv::Mat& disparity_map){
         }
       }
 
+
+      //now search and grab a weigthed average of the 3 nearest disparities (one to the left and one to the right). This is just a crude method to get subpixel accurayc
+      // int nr_interpolate_window=5;
+      // float total_weights_neighbs=0;
+      // float disp_interpolated=0;
+      // if (disparity>nr_interpolate_window/2 && disparity<(MAXIMUM_DISPARITY-nr_interpolate_window/2)){
+      //
+      //   for (size_t n_idx = disparity-nr_interpolate_window/2; n_idx <= disparity+nr_interpolate_window/2; n_idx++) {
+      //     disp_interpolated+= n_idx*(max_cost - cost_volume[n_idx].at<float>(i,j));
+      //     total_weights_neighbs+=(max_cost - cost_volume[n_idx].at<float>(i,j));
+      //   }
+      //   disp_interpolated=disp_interpolated/total_weights_neighbs;
+      //   disparity=disp_interpolated;
+      // }
+
+
       // std::cout << "dispairty is " << disparity << '\n';
-      disparity_map.at<int>(i,j)=disparity;
+      disparity_map.at<float>(i,j)=disparity;
+      confidence_map.at<float>(i,j)=min_cost;
       // disparity_map.at<int>(i,j)=disparity;
 
 
@@ -157,6 +254,28 @@ void winner_take_all(std::vector<cv::Mat> cost_volume, cv::Mat& disparity_map){
     }
   }
 
+
+}
+
+
+void merge_disparities(cv::Mat& disparity_map_full, cv::Mat& disparity_map_left, cv::Mat& disparity_map_right){
+
+    disparity_map_full= cv::Mat (disparity_map_left.rows,disparity_map_left.cols, CV_32F, cv::Scalar(0) );
+    float thresh=2.0;
+
+    for (size_t i = 0; i < disparity_map_left.rows; i++) {
+      for (size_t j = 0; j < disparity_map_left.cols; j++) {
+
+        int disp_from_left=(int)disparity_map_left.at<float>(i,j);
+
+        if (  std::fabs( disparity_map_left.at<float>(i,j) -  disparity_map_right.at<float>(i,j-disp_from_left )) < thresh ){
+          disparity_map_full.at<float>(i,j)=disparity_map_left.at<float>(i,j);
+        }else{
+          disparity_map_full.at<float>(i,j)=0;
+        }
+
+      }
+    }
 
 }
 
@@ -213,8 +332,8 @@ int main(int, char**){
     // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/Aloe/view1.png";
     // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/Aloe/view5.png";
 
-    std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im2.png";
-    std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im6.png";
+    // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im2.png";
+    // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/cones_quarter/im6.png";
 
     // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im2.png";
     // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/teddy_quarter/im6.png";
@@ -222,8 +341,8 @@ int main(int, char**){
     // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/reindeer_half/view1.png";
     // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/reindeer_half/view5.png";
 
-    // std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/tsukuba/scene1.row3.col2.ppm";
-    // std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/tsukuba/scene1.row3.col5.ppm";
+    std::string img_left_path="/media/alex/Data/Master/SHK/Data/middelbury/tsukuba/scene1.row3.col2.ppm";
+    std::string img_left_right="/media/alex/Data/Master/SHK/Data/middelbury/tsukuba/scene1.row3.col5.ppm";
 
     cv::Mat img_left_rgb=cv::imread(img_left_path);
     cv::Mat img_right_rgb=cv::imread(img_left_right);
@@ -296,7 +415,8 @@ int main(int, char**){
 
     //My Stereo things
     std::vector<cv::Mat> cost_volume;
-    cv::Mat disparity_map;
+    cv::Mat disparity_map_left, disparity_map_right, disparity_map_full;
+    cv::Mat confidence_map_left, confidence_map_right;
     downsample (img_left_gray,img_left_gray,DOWNSAMPLE);
     downsample (img_right_gray,img_right_gray,DOWNSAMPLE);
     downsample (img_left_rgb,img_left_rgb,DOWNSAMPLE);
@@ -433,9 +553,15 @@ int main(int, char**){
       // cv::Ptr<cv::AKAZE> akaze = cv::AKAZE::create();
       // cv::Ptr<cv::ORB> orb = cv::ORB::create();
       cv::Ptr<cv::FastFeatureDetector> fast = cv::FastFeatureDetector::create(fast_tresh,fast_nonmaxsupress,fast_type);
+
       cv::Ptr<cv::ximgproc::DTFilter> dt_filter = cv::ximgproc::createDTFilter(img_left_gray,dt_sigma_spacial,dt_sigma_color, dt_mode,dt_iters);
       cv::Ptr<cv::ximgproc::GuidedFilter> gf_filter = cv::ximgproc::createGuidedFilter(img_left_gray,gf_radius,gf_eps);
       cv::Ptr<cv::ximgproc::FastGlobalSmootherFilter> fast_smoother_filter = cv::ximgproc::createFastGlobalSmootherFilter(img_left_rgb,fast_smoother_lambda,fast_smoother_color,fast_smoother_lambda_attenuation,fast_smoother_iters);
+
+      cv::Ptr<cv::ximgproc::DTFilter> dt_filter_right = cv::ximgproc::createDTFilter(img_right_gray,dt_sigma_spacial,dt_sigma_color, dt_mode,dt_iters);
+      cv::Ptr<cv::ximgproc::GuidedFilter> gf_filter_right = cv::ximgproc::createGuidedFilter(img_right_gray,gf_radius,gf_eps);
+      cv::Ptr<cv::ximgproc::FastGlobalSmootherFilter> fast_smoother_filter_right = cv::ximgproc::createFastGlobalSmootherFilter(img_right_rgb,fast_smoother_lambda,fast_smoother_color,fast_smoother_lambda_attenuation,fast_smoother_iters);
+
       cv::Ptr<cv::FeatureDetector> leftFeatureDetector = new sparsestereo::ExtendedFAST(fast_nonmaxsupress, fast_tresh, exfast_adaptivity, false, 2);
       Elas elas(elas_param);
 
@@ -491,12 +617,7 @@ int main(int, char**){
       for (size_t d = 0; d < cost_volume.size(); d++) {
         if (smoothing_algorithm_type==0) dt_filter->filter(cost_volume[d],cost_volume[d],cost_volume[d].depth());
         if (smoothing_algorithm_type==1) gf_filter->filter(cost_volume[d],cost_volume[d],cost_volume[d].depth());
-        if (smoothing_algorithm_type==2) {
-          //   cv::Rect roi= cv::Rect(d,0,img_left_gray.cols-d, img_left_gray.rows );
-          //   cv::Ptr<cv::ximgproc::FastGlobalSmootherFilter> fast_smoother_filter = cv::ximgproc::createFastGlobalSmootherFilter(img_left_gray(roi),fast_smoother_lambda,fast_smoother_color,fast_smoother_lambda_attenuation,fast_smoother_iters);
-          // fast_smoother_filter->filter 	(cost_volume[d](roi),cost_volume[d](roi));
-          fast_smoother_filter->filter 	(cost_volume[d],cost_volume[d]);
-        }
+        if (smoothing_algorithm_type==2) fast_smoother_filter->filter(cost_volume[d],cost_volume[d]);
       }
 
       // for (size_t i = 0; i < cost_volume.size(); i++) {
@@ -505,41 +626,80 @@ int main(int, char**){
       // }
 
 
-      winner_take_all(cost_volume,disparity_map);
+      winner_take_all(cost_volume,disparity_map_left, confidence_map_left);
+
+
+
+
+
+      //0 out the cost_volume
+      for (size_t d = 0; d < MAXIMUM_DISPARITY; d++) {
+        for (size_t i = 0; i < cost_volume[0].rows; i++) {
+          for (size_t j = 0; j < cost_volume[0].cols; j++) {
+            cost_volume[d].at<float>(i,j)=255.0f;
+          }
+        }
+      }
+
+
+      compute_cost_volume_right(cost_volume, img_left_rgb,img_right_rgb, alpha, truncation_color, truncation_gradient);
+
+
+      // for (size_t i = 0; i < cost_volume.size(); i++) {
+      //   cv::imshow("cost_unfiltered", mat2gray(cost_volume[i]));
+      //   cv::waitKey(0);
+      // }
+
+      //Filter cost volume
+      for (size_t d = 0; d < cost_volume.size(); d++) {
+        if (smoothing_algorithm_type==0) dt_filter_right->filter(cost_volume[d],cost_volume[d],cost_volume[d].depth());
+        if (smoothing_algorithm_type==1) gf_filter_right->filter(cost_volume[d],cost_volume[d],cost_volume[d].depth());
+        if (smoothing_algorithm_type==2) fast_smoother_filter_right->filter(cost_volume[d],cost_volume[d]);
+
+      }
+
+      // for (size_t i = 0; i < cost_volume.size(); i++) {
+      //   cv::imshow("cost_filtered", mat2gray(cost_volume[i]));
+      //   cv::waitKey(0);
+      // }
+
+      winner_take_all(cost_volume,disparity_map_right, confidence_map_right);
+
+      merge_disparities(disparity_map_full,disparity_map_left,disparity_map_right);
 
 
       //Elas
-        // // allocate memory for disparity images
-        // // get image width and height
-        // int32_t width  = img_left_gray.cols;
-        // int32_t height = img_left_gray.rows;
-        //
-        // // allocate memory for disparity images
-        // const int32_t dims[3] = {width,height,width}; // bytes per line = width
-        // float* D1_data = (float*)malloc(width*height*sizeof(float));
-        // float* D2_data = (float*)malloc(width*height*sizeof(float));
-        //
-        // elas.process(img_left_gray.data,img_right_gray.data,D1_data,D2_data,dims);
-        //
-        // // find maximum disparity for scaling output disparity images to [0..255]
-        // float disp_max = 0;
-        // for (int32_t i=0; i<width*height; i++) {
-        //   if (D1_data[i]>disp_max) disp_max = D1_data[i];
-        //   if (D2_data[i]>disp_max) disp_max = D2_data[i];
-        // }
-        //
-        // // copy float to uchar
-        // image<uchar> *D1 = new image<uchar>(width,height);
-        // image<uchar> *D2 = new image<uchar>(width,height);
-        // disparity_map= cv::Mat (img_left_gray.rows,img_left_gray.cols, CV_8U, cv::Scalar(0) );
-        // for (int32_t i=0; i<width*height; i++) {
-        //   disparity_map.data[i] = (uint8_t)std::max(255.0*D1_data[i]/disp_max,0.0);
-        // }
-        //
-        // delete D1;
-        // delete D2;
-        // free(D1_data);
-        // free(D2_data);
+      // // allocate memory for disparity images
+      // // get image width and height
+      // int32_t width  = img_left_gray.cols;
+      // int32_t height = img_left_gray.rows;
+      //
+      // // allocate memory for disparity images
+      // const int32_t dims[3] = {width,height,width}; // bytes per line = width
+      // float* D1_data = (float*)malloc(width*height*sizeof(float));
+      // float* D2_data = (float*)malloc(width*height*sizeof(float));
+      //
+      // elas.process(img_left_gray.data,img_right_gray.data,D1_data,D2_data,dims);
+      //
+      // // find maximum disparity for scaling output disparity images to [0..255]
+      // float disp_max = 0;
+      // for (int32_t i=0; i<width*height; i++) {
+      //   if (D1_data[i]>disp_max) disp_max = D1_data[i];
+      //   if (D2_data[i]>disp_max) disp_max = D2_data[i];
+      // }
+      //
+      // // copy float to uchar
+      // image<uchar> *D1 = new image<uchar>(width,height);
+      // image<uchar> *D2 = new image<uchar>(width,height);
+      // disparity_map_full= cv::Mat (img_left_gray.rows,img_left_gray.cols, CV_8U, cv::Scalar(0) );
+      // for (int32_t i=0; i<width*height; i++) {
+      //   disparity_map_full.data[i] = (uint8_t)std::max(255.0*D1_data[i]/disp_max,0.0);
+      // }
+      //
+      // delete D1;
+      // delete D2;
+      // free(D1_data);
+      // free(D2_data);
 
 
 
@@ -559,7 +719,7 @@ int main(int, char**){
 
       // disparity_map=mat2gray(disparity_map);
       double min, max;
-      cv::minMaxLoc(disparity_map, &min, &max);
+      cv::minMaxLoc(disparity_map_full, &min, &max);
       // std::cout << "disparity map min max is " << min << " " << max << '\n';
       // for (size_t i = 0; i < disparity_map.rows; i++) {
       //   for (size_t j = 0; j < disparity_map.cols; j++) {
@@ -573,16 +733,17 @@ int main(int, char**){
       if (ImGui::Curve("Das editor", ImVec2(400, 200), 10, transfer_func))
       {
       }
-      for (size_t i = 0; i < disparity_map.rows; i++) {
-        for (size_t j = 0; j < disparity_map.cols; j++) {
+      for (size_t i = 0; i < disparity_map_left.rows; i++) {
+        for (size_t j = 0; j < disparity_map_left.cols; j++) {
           // disparity_map.at<uchar>(i,j)  = ImGui::CurveValue( disparity_map.at<uchar>(i,j)/255.0 , 10, transfer_func)*255;
-          // disparity_map.at<int>(i,j)  = ImGui::CurveValue( disparity_map.at<int>(i,j)/(float)max , 10, transfer_func)*max;
+          //disable it in the case of elas because the disparity map is not a flot but a CV_8U
+          disparity_map_full.at<float>(i,j)  = ImGui::CurveValue( disparity_map_full.at<float>(i,j)/(float)max , 10, transfer_func)*max;
 
         }
       }
 
-      cv::minMaxLoc(disparity_map, &min, &max);
-      std::cout << "disparity map min max is " << min << " " << max << '\n';
+      cv::minMaxLoc(disparity_map_full, &min, &max);
+      std::cout << "disparity_map_full min max is " << min << " " << max << '\n';
 
 
 
@@ -597,7 +758,10 @@ int main(int, char**){
       // cv::imshow("sobel", mat2gray(sobelx));
       // cv::imshow("sobel", sobelx);
 
-      cv::imshow("disparity", mat2gray(disparity_map));
+      cv::imshow("disparity_full", mat2gray(disparity_map_full));
+      // cv::imshow("disparity_left", mat2gray(disparity_map_left));
+      // cv::imshow("disparity_right", mat2gray(disparity_map_right));
+      // cv::imshow("confidence", mat2gray(confidence_map_left));
       // downsample_in_place(smoothed,2);
       // downsample(smoothed, smoothed,2);
       // cv::imshow("img_left_kp", mat2gray(smoothed));
